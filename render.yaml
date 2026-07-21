@@ -1,0 +1,88 @@
+# Render Blueprint (§11). One repo, three deployable units + managed data stores.
+# Portability: application code only ever reads DATABASE_URL / REDIS_URL, so
+# moving to AWS (RDS + ElastiCache) is an infra swap, not a code change.
+services:
+  # --- FastAPI API (web service) ---
+  - type: web
+    name: lead-recovery-api
+    runtime: docker
+    rootDir: apps/api
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/v1/health
+    # Alembic migrations run as a pre-deploy step, never on app boot.
+    preDeployCommand: alembic upgrade head
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lead-recovery-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: lead-recovery-redis
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PUBLIC_API_BASE_URL
+        sync: false
+
+  # --- arq worker (background service, same image as API) ---
+  - type: worker
+    name: lead-recovery-worker
+    runtime: docker
+    rootDir: apps/api
+    dockerfilePath: ./Dockerfile
+    dockerCommand: arq app.queue.arq_backend.WorkerSettings
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lead-recovery-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: lead-recovery-redis
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        fromService:
+          type: web
+          name: lead-recovery-api
+          envVarKey: JWT_SECRET_KEY
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+  # --- Next.js dashboard (web service) ---
+  - type: web
+    name: lead-recovery-web
+    runtime: node
+    rootDir: apps/web
+    buildCommand: pnpm install && pnpm build
+    startCommand: pnpm start
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        sync: false
+
+  # --- Managed Redis ---
+  - type: keyvalue
+    name: lead-recovery-redis
+    ipAllowList: []
+    plan: starter
+
+databases:
+  - name: lead-recovery-db
+    databaseName: lead_recovery
+    plan: basic-256mb
