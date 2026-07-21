@@ -11,7 +11,8 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Header, Path
+from fastapi import Depends, Path
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import SessionFactory
@@ -19,6 +20,11 @@ from app.core.security import decode_token
 from app.models import User
 from app.repositories.repositories import MembershipRepository
 from app.shared.exceptions import AuthenticationError, TenantIsolationError
+
+# auto_error=False so we raise our own AuthenticationError (consistent JSON
+# error shape) instead of FastAPI's default 403. Declaring this scheme also
+# gives Swagger UI (/docs) an "Authorize" button that attaches the bearer token.
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
@@ -36,11 +42,11 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 async def get_current_user(
     db: DbSession,
-    authorization: Annotated[str | None, Header()] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> User:
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if credentials is None or not credentials.credentials:
         raise AuthenticationError("Missing bearer token")
-    token = authorization.split(" ", 1)[1]
+    token = credentials.credentials
     try:
         payload = decode_token(token, expected_type="access")
     except jwt.PyJWTError as exc:
