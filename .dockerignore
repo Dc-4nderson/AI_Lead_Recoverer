@@ -1,0 +1,16 @@
+# Keep local build artifacts out of Docker build contexts.
+node_modules
+**/node_modules
+.next
+**/.next
+.turbo
+**/.turbo
+.venv
+**/.venv
+__pycache__
+**/__pycache__
+*.pyc
+.git
+.env
+.env.*
+!.env.example
