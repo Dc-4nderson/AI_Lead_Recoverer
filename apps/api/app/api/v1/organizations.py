@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from app.api.deps import CurrentOrg, CurrentUser, DbSession
+from app.models import Membership, Organization
+from app.repositories.repositories import MembershipRepository, OrganizationRepository
+from app.schemas.common import CreateOrganizationRequest, OrganizationOut
+from app.shared.enums import Role
+from app.shared.exceptions import NotFoundError
+
+router = APIRouter(tags=["organizations"])
+
+
+@router.post("/organizations", response_model=OrganizationOut, status_code=201)
+async def create_organization(
+    req: CreateOrganizationRequest, user: CurrentUser, db: DbSession
+) -> Organization:
+    orgs = OrganizationRepository(db)
+    org = await orgs.add(
+        Organization(name=req.name, industry=req.industry, timezone=req.timezone)
+    )
+    await MembershipRepository(db).add(
+        Membership(user_id=user.id, organization_id=org.id, role=Role.OWNER)
+    )
+    return org
+
+
+@router.get("/organizations/{org_id}", response_model=OrganizationOut)
+async def get_organization(org_id: CurrentOrg, db: DbSession) -> Organization:
+    org = await OrganizationRepository(db).get(org_id)
+    if org is None:
+        raise NotFoundError("Organization not found")
+    return org
