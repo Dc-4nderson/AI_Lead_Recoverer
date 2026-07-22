@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 from typing import TypeVar
 
 from app.core.db import session_scope
@@ -37,14 +38,34 @@ class EventBus:
     async def publish(self, event: BaseEvent) -> None:
         # 1. Durability / audit / replay.
         await self._persist(event)
+        # Observability: record the event when a simulation is active (no-op in prod).
+        from app.simulator.session import get_current_simulation
+
+        sim = get_current_simulation()
+        handlers = self._subscribers.get(event.event_type, [])
+        event_rec = None
+        if sim is not None:
+            event_rec = sim.trace.record_event(event.event_type, event.to_payload())
+            event_rec["subscriber_count"] = len(handlers)
         # 2. Fan-out with per-subscriber isolation.
-        for handler in self._subscribers.get(event.event_type, []):
+        for handler in handlers:
+            started = perf_counter()
             try:
                 await handler(event)
-            except Exception:  # noqa: BLE001 — one bad subscriber must not block others
+                if sim is not None:
+                    sim.trace.record_subscriber(
+                        event.event_type, getattr(handler, "__name__", repr(handler)),
+                        "ok", (perf_counter() - started) * 1000, None,
+                    )
+            except Exception as exc:  # noqa: BLE001 — one bad subscriber must not block others
                 logger.exception(
                     "event subscriber failed", extra={"event_type": event.event_type}
                 )
+                if sim is not None:
+                    sim.trace.record_subscriber(
+                        event.event_type, getattr(handler, "__name__", repr(handler)),
+                        "error", (perf_counter() - started) * 1000, repr(exc),
+                    )
 
     async def _persist(self, event: BaseEvent) -> None:
         org_id = getattr(event, "organization_id", None)

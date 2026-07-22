@@ -74,3 +74,90 @@ export interface BusinessSettings {
   ai_custom_instructions: string | null;
   notification_preferences: Record<string, unknown>;
 }
+
+// --- Workflow Simulator (Developer Tools) -----------------------------------
+// Mirrors app/schemas/simulator.py. The simulator is a thin front-end over the
+// production backend; these types describe its trace + control surface only.
+
+export interface WorkflowInfo {
+  name: string;
+  trigger_event: string;
+  steps: string[];
+}
+
+export interface EventTypeInfo {
+  name: string;
+  event_type: string;
+  fields: string[];
+}
+
+export interface SimulationRunRequest {
+  workflow: string;
+  caller_number: string;
+  business_number: string;
+  conversation_turns: string[];
+  use_real_ai: boolean;
+  business_settings_overrides?: Record<string, unknown> | null;
+}
+
+export interface TraceRecord {
+  seq: number;
+  ts: string;
+  [key: string]: unknown;
+}
+
+export interface SimulationTrace {
+  events: TraceRecord[];
+  subscribers: TraceRecord[];
+  workflow_steps: TraceRecord[];
+  queue_jobs: TraceRecord[];
+  ai_calls: TraceRecord[];
+  db_changes: TraceRecord[];
+  sms: TraceRecord[];
+  timeline: TraceRecord[];
+}
+
+export interface SimulationRunResponse {
+  call_sid: string;
+  conversation_id: string | null;
+  workflow_run: {
+    id: string;
+    workflow_name: string;
+    status: string;
+    state: Record<string, unknown>;
+  } | null;
+  lead: {
+    id: string;
+    name: string | null;
+    service_requested: string | null;
+    classification: string | null;
+    urgency: string | null;
+    status: string;
+  } | null;
+  trace: SimulationTrace;
+}
+
+export interface ReplayEventResponse {
+  replayed: string;
+  trace: SimulationTrace;
+}
+
+export interface SimulatorScenario {
+  id: string;
+  name: string;
+  payload: SimulationRunRequest;
+  created_at: string;
+}
+
+// Client-side record of a call the simulator UI made to its own backend
+// (the "API Inspector" — accurate because in-process simulation makes no
+// internal HTTP calls of its own).
+export interface ApiCallRecord {
+  method: string;
+  route: string;
+  status: number;
+  latency_ms: number;
+  request_body?: unknown;
+  response_body?: unknown;
+  timestamp: string;
+}

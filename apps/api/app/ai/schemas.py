@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from app.shared.enums import Classification, Urgency
 
+SCHEMA_VERSION = "lead_extraction.v1"
+
 
 class LeadExtractionResult(BaseModel):
     name: str | None = Field(default=None, description="Caller's name if stated")

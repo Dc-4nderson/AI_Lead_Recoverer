@@ -85,6 +85,29 @@ pytest                                   # tests
 Both converge on the same webhook handling — the workflow is agnostic to how the
 number was connected.
 
+## Workflow Simulator (Developer Tools)
+
+`Developer Tools → Workflow Simulator` (`/dev-tools/simulator` in the
+dashboard) drives the exact production backend — real event bus, real
+workflow engine, real AI extraction contract, real repositories, real
+database — with only Twilio/Redis/OpenAI transport swapped for synthetic
+events, inline execution, and (by default) a deterministic mock AI client.
+Use it to:
+
+- Run a full missed-call → SMS → qualify → notify flow with no Twilio call
+  and no OpenAI cost (toggle "use real AI" to hit OpenAI for real).
+- Watch the event bus, workflow steps, queue jobs, AI extraction I/O, and
+  every DB row created/changed, on one timeline.
+- Step through a paused workflow one engine step at a time.
+- Replay any generated event through the real event bus.
+- Save/load reusable scenarios (Emergency Plumbing, Spam Caller, etc.).
+
+To connect: sign up via `/auth/signup`, paste the returned access token into
+the simulator's Connection panel, then click "Look up my organizations" (uses
+`GET /organizations`) to pick the org to simulate against.
+
+See `ARCHITECTURE.md` §18 for the design (what's swapped vs. real, and why).
+
 ## Tests
 
 `apps/api/tests/` — the workflow engine and event bus have deterministic unit

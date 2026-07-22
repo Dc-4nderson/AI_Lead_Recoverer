@@ -18,6 +18,12 @@ logger = logging.getLogger("events.handlers")
 
 
 async def _get_queue():
+    # During a simulation, use the inline queue (same task functions, no Redis).
+    from app.simulator.session import get_current_simulation
+
+    sim = get_current_simulation()
+    if sim is not None:
+        return sim.queue
     # Lazy import breaks the handlers → arq_backend → tasks → handlers cycle.
     from app.queue.arq_backend import get_queue_client
 

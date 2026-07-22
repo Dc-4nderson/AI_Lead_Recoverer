@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 // Placeholder landing / onboarding entry (§1). The full onboarding wizard
 // (account → verify → connect number → business info → calendar → AI tone →
 // notifications → test → activate) builds out from here — each step is a route
@@ -33,6 +35,12 @@ export default function Home() {
       <p style={{ marginTop: 40, color: "#6f7f99", fontSize: 14 }}>
         This is the MVP scaffold. The dashboard consumes the FastAPI backend via
         a typed client backed by the shared types package.
+      </p>
+
+      <p style={{ marginTop: 16 }}>
+        <Link href="/dev-tools" style={{ color: "#5a8fd6" }}>
+          Developer Tools →
+        </Link>
       </p>
     </main>
   );

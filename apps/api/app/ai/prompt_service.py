@@ -8,6 +8,8 @@ from jinja2 import Environment, select_autoescape
 
 from app.models import BusinessSettings
 
+PROMPT_VERSION = "extraction_base.v1"
+
 _env = Environment(autoescape=select_autoescape(default=True))
 
 # Platform-owned, industry-agnostic base. Tenant differences arrive as variables,

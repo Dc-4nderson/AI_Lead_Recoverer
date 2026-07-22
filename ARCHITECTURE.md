@@ -754,10 +754,93 @@ the onboarding UX and which instructions/verification step run first.
 
 ---
 
+## 18. Workflow Simulator (Developer Tooling)
+
+Status: **Implemented.** Frozen-architecture constraint honored — no forked
+engine/bus/AI/repositories/queue/services. Lives at
+`apps/api/app/simulator/` + `apps/web/app/dev-tools/simulator/`.
+
+**What it is**: a thin observability + orchestration layer, not a second
+implementation. It runs the real event bus, the real workflow engine, the
+real `AIExtractionService`, the real repositories, and the real database.
+Only three I/O *transports* are swapped, exactly the ones the architecture
+already treats as external:
+
+- **Twilio → `SimulatedTwilioClient`**: records outbound SMS to a trace
+  instead of calling Twilio. Implements the same `SMSSender`/notifier surface
+  `TwilioClient` does, so `NotificationService` and the workflow steps run
+  unmodified.
+- **Redis/arq → `InlineQueueClient`**: implements the `QueueClient` protocol
+  (§9) but invokes the *same* task functions
+  (`app.queue.arq_backend.WorkerSettings.functions`) synchronously in-process
+  instead of round-tripping through Redis. This is what makes step-by-step
+  execution and a single unified trace possible.
+- **OpenAI → `MockOpenAIClient` (default) or the real client (opt-in)**:
+  mirrors the exact `responses.parse(...) -> output_parsed` surface
+  `AIExtractionService` calls, returning a schema-valid `LeadExtractionResult`
+  from deterministic keyword rules. `AIExtractionService` itself is
+  unchanged — only its injected `client` differs.
+
+**How instrumentation works**: a single `SimulationSession` (trace +
+doubles) is bound to a `ContextVar` for the duration of one simulation.
+`EventBus.publish`, `WorkflowEngine.advance`, `AIExtractionService.extract`,
+and a SQLAlchemy `after_flush` listener each check
+`get_current_simulation()` and record to the trace **only if a session is
+bound** — in production, where nothing binds a session, every hook is a
+no-op and behavior is identical to before this feature existed (verified: the
+full pre-existing test suite passes unchanged).
+
+**Driving a run**: `SimulationRunner` publishes real domain events
+(`MissedCallDetected`, then one `MessageReceived` per conversation turn)
+through the real `event_bus` — the same events the Twilio webhooks publish.
+Everything downstream is production code. `replay-event` republishes any
+prior event through the same real bus, not a manual downstream call.
+`step_workflow` advances one existing, paused `WorkflowRun` by exactly one
+engine step via `engine.advance(ctx, max_steps=1)` — the same `run_workflow`
+entrypoint the queue task uses.
+
+**Persistence**: simulated runs commit real rows (`leads`, `conversations`,
+`workflow_runs`, `event_log`, ...), so they're inspectable afterward like any
+other data; `POST /simulator/reset` deletes one conversation's generated rows
+on request. `simulator_scenarios` stores reusable run inputs, scoped by
+organization like every other tenant table.
+
+**Bugs this work surfaced and fixed** (implementation-quality fixes, not
+redesigns, per the "architecture frozen unless bug" instruction):
+1. `TwilioClient` only exposed `send_sms`, but `WorkflowContext.sms` (the
+   `SMSSender` protocol) calls `.send(...)` — the real missed-call path would
+   have raised `AttributeError` the first time a lead reached
+   `SendInitialSMS` in production. Added `TwilioClient.send` delegating to
+   `send_sms`.
+2. `WorkflowEngine.advance`'s new `max_steps` parameter left
+   `ctx.state["step_index"]` one step stale when a `CONTINUE` outcome ended
+   the call early — the index only advanced correctly when another loop
+   iteration ran. Fixed to persist the advanced index immediately; covered by
+   a regression test (`test_engine_multi_step_persists_index_between_calls`).
+3. There was no way for a signed-up user to discover their
+   `organization_id` via the API (the JWT deliberately carries only
+   `user_id`, §4). Added `GET /organizations` (list the current user's
+   organizations via their memberships) — needed for the simulator's
+   connection panel and for onboarding generally.
+
+**Testing**: unit tests cover the mock AI classifier, trace serialization,
+single-step engine behavior, and the no-op-in-production guarantee. An
+integration test (`tests/integration/test_simulator_runner.py`, skipped
+without a Postgres `DATABASE_URL`) runs a full missed-call → emergency
+qualification simulation against a real database and asserts the real event
+chain, real engine steps, real queue jobs, and real DB writes all occurred.
+Additionally verified manually end-to-end over real HTTP against a live
+Postgres instance: signup → list-my-organizations → run (emergency
+classification, qualified lead) → save/list scenario → replay-event
+(confirmed it re-triggers the real `LeadQualified` subscriber and enqueues
+`send_notification`).
+
+---
+
 ## Next Step
 
-This revision incorporates all seven decisions. Please confirm before I
-scaffold the monorepo (§2), initial Alembic migrations (§3), the event bus +
-workflow engine skeleton (§16–17), and the missed-call → SMS →
-qualification → notification happy path end to end, targeting the
-forwarding-connect onboarding path first since it's the primary flow.
+The MVP backend, monorepo scaffold, and Workflow Simulator are implemented
+and verified end-to-end (unit tests, an integration test against real
+Postgres, and manual HTTP verification). Future work: onboarding wizard UI,
+tenant-isolation test suite, calendar/CRM integrations, and the remaining
+roadmap items in §14.

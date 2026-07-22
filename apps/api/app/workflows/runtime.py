@@ -32,13 +32,18 @@ class _ExtractorAdapter:
     """Conforms to the Extractor protocol: pulls conversation history + tenant
     context from the DB and delegates to the AI extraction layer."""
 
-    def __init__(self, session: AsyncSession, organization_id: uuid.UUID) -> None:
+    def __init__(
+        self, session: AsyncSession, organization_id: uuid.UUID, ai_client: object | None = None
+    ) -> None:
         self.session = session
         self.organization_id = organization_id
         self.messages = MessageRepository(session)
         self.settings_repo = BusinessSettingsRepository(session)
         self.orgs = OrganizationRepository(session)
-        self.ai = AIExtractionService()
+        # ai_client is only supplied during a simulation (a deterministic mock,
+        # or a real OpenAI client for the "use real AI" toggle). Production
+        # passes None → AIExtractionService builds its own real client.
+        self.ai = AIExtractionService(client=ai_client)
 
     async def extract(self, *, conversation_id: uuid.UUID) -> LeadExtractionResult:
         history = await self.messages.list_for_conversation(conversation_id)
@@ -54,8 +59,14 @@ class _ExtractorAdapter:
         )
 
 
-async def run_workflow(session: AsyncSession, workflow_run_id: uuid.UUID) -> WorkflowRun:
-    """Load a run, advance it through the engine, persist the result."""
+async def run_workflow(
+    session: AsyncSession, workflow_run_id: uuid.UUID, max_steps: int | None = None
+) -> WorkflowRun:
+    """Load a run, advance it through the engine, persist the result.
+
+    ``max_steps`` (None in production) bounds how many engine steps run in this
+    call — used by the simulator's "Step Forward" control (§17 engine.advance).
+    """
     run = await session.get(WorkflowRun, workflow_run_id)
     if run is None:
         raise NotFoundError("WorkflowRun not found")
@@ -66,7 +77,14 @@ async def run_workflow(session: AsyncSession, workflow_run_id: uuid.UUID) -> Wor
     conv_repo = ConversationRepository(session)
     conversation = await conv_repo.get(run.organization_id, run.conversation_id)
 
-    twilio = TwilioClient()
+    # During a simulation, swap Twilio I/O + AI client for doubles; the real
+    # NotificationService, AIExtractionService, engine and repositories all run
+    # unchanged (only external transports differ — §16/§17 seams).
+    from app.simulator.session import get_current_simulation
+
+    sim = get_current_simulation()
+    twilio = sim.twilio_client if sim is not None else TwilioClient()
+    ai_client = sim.ai_client if sim is not None else None
     phone_from = conversation.twilio_sid if conversation else ""
 
     ctx = WorkflowContext(
@@ -78,12 +96,12 @@ async def run_workflow(session: AsyncSession, workflow_run_id: uuid.UUID) -> Wor
         business_number=run.state.get("business_number", phone_from),
         state=dict(run.state),
         sms=twilio,
-        extractor=_ExtractorAdapter(session, run.organization_id),
+        extractor=_ExtractorAdapter(session, run.organization_id, ai_client),
         notifier=NotificationService(session, twilio),
         publish_event=event_bus.publish,
     )
 
-    status = await engine.advance(ctx)
+    status = await engine.advance(ctx, max_steps=max_steps)
 
     # Persist any extraction the run produced onto the Lead (the AI layer never
     # writes to the DB itself — §17b; the workflow owns that side effect).
