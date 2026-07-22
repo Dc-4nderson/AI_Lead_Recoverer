@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
+from sqlalchemy import select
 
 from app.api.deps import CurrentOrg, CurrentUser, DbSession
 from app.models import Membership, Organization
@@ -10,6 +11,22 @@ from app.shared.enums import Role
 from app.shared.exceptions import NotFoundError
 
 router = APIRouter(tags=["organizations"])
+
+
+@router.get("/organizations", response_model=list[OrganizationOut])
+async def list_my_organizations(user: CurrentUser, db: DbSession) -> list[Organization]:
+    """Organizations the current user belongs to. There is no other way for a
+    signed-up user to discover their organization_id (the JWT deliberately
+    carries only user_id — §4/§5), so this is required for onboarding/tooling."""
+    rows = (
+        await db.execute(
+            select(Organization)
+            .join(Membership, Membership.organization_id == Organization.id)
+            .where(Membership.user_id == user.id)
+            .order_by(Organization.created_at)
+        )
+    ).scalars().all()
+    return list(rows)
 
 
 @router.post("/organizations", response_model=OrganizationOut, status_code=201)

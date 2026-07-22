@@ -41,6 +41,11 @@ class TwilioClient:
         message = self.rest.messages.create(to=to_number, from_=from_number, body=body)
         return message.sid
 
+    async def send(self, *, to_number: str, from_number: str, body: str) -> str | None:
+        # Satisfies the SMSSender protocol (app.workflows.context) that the
+        # workflow steps depend on; delegates to the Twilio SMS API call above.
+        return await self.send_sms(to_number=to_number, from_number=from_number, body=body)
+
     async def provision_number(self, *, area_code: str | None = None) -> tuple[str, str]:
         """Purchase an available number. Returns (e164_number, twilio_sid)."""
         available = self.rest.available_phone_numbers("US").local.list(

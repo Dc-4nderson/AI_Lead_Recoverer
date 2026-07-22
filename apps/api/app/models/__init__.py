@@ -8,6 +8,7 @@ from app.models.membership import Membership
 from app.models.message import Message
 from app.models.organization import Organization
 from app.models.phone_number import PhoneNumber
+from app.models.simulator_scenario import SimulatorScenario
 from app.models.user import User
 from app.models.workflow_run import WorkflowRun
 
@@ -21,6 +22,7 @@ __all__ = [
     "Message",
     "Organization",
     "PhoneNumber",
+    "SimulatorScenario",
     "User",
     "WorkflowRun",
 ]
