@@ -4,15 +4,14 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
-from app.core.db import Base
-
 # Import models so their tables register on Base.metadata for autogenerate.
 import app.models  # noqa: F401
+from alembic import context
+from app.core.config import get_settings
+from app.core.db import Base
 
 config = context.config
 if config.config_file_name is not None:

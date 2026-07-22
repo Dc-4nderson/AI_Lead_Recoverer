@@ -26,7 +26,9 @@ class BusinessSettings(UUIDMixin, TimestampMixin, Base):
     city: Mapped[str | None] = mapped_column(String(120), nullable=True)
     state: Mapped[str | None] = mapped_column(String(120), nullable=True)
     postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    # Accepts a full country name or an ISO code — kept forgiving so onboarding
+    # never fails on a reasonable free-text address entry.
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # {mon: [{"open": "09:00", "close": "17:00"}], ...}
     business_hours: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
